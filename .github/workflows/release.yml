@@ -78,6 +78,7 @@ jobs:
           # $PSCommandPath and parameters bound through the scriptblock.
           $source = Get-Content ./PowerScan.ps1 -Raw
           & ([scriptblock]::Create($source)) -NoGui -Range 127.0.0.1 -OfflineVendors
+          exit 0   # see the step below: $LASTEXITCODE decides the step result
 
       - name: Smoke-test the RMM exit codes
         if: steps.check.outputs.release == 'true'
@@ -86,12 +87,19 @@ jobs:
           # this backwards would report every scan as failed, or every failure
           # as success.
           & pwsh -NoProfile -File ./PowerScan.ps1 -NoGui -Range 127.0.0.1 -SetExitCode
-          if ($LASTEXITCODE -ne 0) { throw "Good scan exited $LASTEXITCODE, expected 0." }
+          $good = $LASTEXITCODE
+          if ($good -ne 0) { throw "Good scan exited $good, expected 0." }
 
           & pwsh -NoProfile -File ./PowerScan.ps1 -NoGui -Range not.an.ip -SetExitCode
-          if ($LASTEXITCODE -ne 1) { throw "Bad range exited $LASTEXITCODE, expected 1." }
+          $bad = $LASTEXITCODE
+          if ($bad -ne 1) { throw "Bad range exited $bad, expected 1." }
 
           Write-Host 'Exit codes correct: 0 on success, 1 on failure.'
+
+          # A pwsh step exits with whatever $LASTEXITCODE holds, and the line
+          # above deliberately left it at 1. Without this the step fails even
+          # though both assertions passed.
+          exit 0
 
       - name: Tag and publish
         if: steps.check.outputs.release == 'true'
