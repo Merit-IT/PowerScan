@@ -38,6 +38,7 @@ IP Address      Hostname                  MAC                 Vendor           m
 | `-Concurrency` | `64` | How many hosts are pinged at once. |
 | `-NoDns` | off | Skip reverse DNS. Noticeably faster on subnets with no local DNS server. |
 | `-NoMac` | off | Skip MAC and vendor resolution. |
+| `-OfflineVendors`, `--offline` | off | Never call the vendor API; use the built-in OUI table only. |
 | `-ExportCsv` | off | Also write the results to a CSV path. |
 | `-Help`, `-h` | — | Usage. |
 
@@ -92,9 +93,23 @@ Everything lives in one file so the one-liner stays a one-liner.
 - **The one-liner.** `iex` can't accept parameters, so the script is compiled with `[scriptblock]::Create()` and invoked with `&`. Arguments then bind to its `param()` block like any other script. (Same trick [Win11Debloat](https://github.com/Raphire/Win11Debloat) uses.)
 - **Discovery.** Async `Ping.SendPingAsync` — a whole batch is launched before any reply is awaited, so a /24 sweeps in a couple of seconds rather than a couple of minutes.
 - **Enrichment.** Once a batch answers, reverse DNS and TCP connects fire concurrently for the whole batch, and the MAC comes out of the Windows neighbor cache (`Get-NetNeighbor`, falling back to `arp.exe`) while the entries are still warm from the ping.
-- **Vendors.** An OUI prefix table is built into the script, so there's no API call and no rate limit. Locally administered addresses are labelled as such rather than guessed at.
+- **Vendors.** Looked up against [api.macadress.com](https://macadress.com/free-mac-address-api), which needs no key, with a built-in OUI table as the fallback. See below.
 - **The window.** WPF built from XAML held as a string and parsed with `XamlReader.Load()`, with `shell:WindowChrome` for the custom title bar.
 - **Responsiveness.** The scan runs in a background runspace and pushes results onto a `ConcurrentQueue`. A `DispatcherTimer` on the UI thread drains that queue into the bound collection, so the window never blocks and every control touch stays on the dispatcher thread.
+
+## Vendor lookup
+
+Vendor names come from [api.macadress.com](https://macadress.com/free-mac-address-api) — no key, no signup. If it can't be reached, PowerScan silently falls back to an OUI table built into the script and carries on.
+
+Details that matter in practice:
+
+- **Only the OUI is sent.** PowerScan transmits the 6-hex manufacturer prefix (`B827EB`), never a full MAC address. The prefix identifies Raspberry Pi; it doesn't identify a device. Nothing that could fingerprint a specific machine leaves the network you're scanning.
+- **One call per vendor, not per host.** Results are cached by OUI for the duration of a scan, so a /24 full of Dell desktops costs a single request.
+- **First failure is the last.** DNS failure, no route, a proxy block, a timeout, or a `429` trips a circuit breaker, and the rest of the scan uses the table without touching the network again. An air-gapped scan of six unique vendors costs one failed request and about 0.16s, not six timeouts.
+- **Rate limits** are 60 requests/minute and 1,000/day per IP without a key. With per-OUI caching you are very unlikely to reach either.
+- **`--offline`** skips the API entirely, for sites that would rather make no outbound calls at all.
+
+The built-in table carries ~150 common prefixes and is deliberately kept, so the tool stays useful on an isolated network. The API gives fuller names where it's reachable — `Apple, Inc.` and `Raspberry Pi Foundation` rather than the table's `Apple` and `Raspberry Pi`.
 
 ## A note on use
 

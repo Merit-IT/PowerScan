@@ -36,6 +36,12 @@
 .PARAMETER NoMac
     Skip MAC address / vendor resolution.
 
+.PARAMETER OfflineVendors
+    Never call api.macadress.com; resolve vendors from the built-in OUI table
+    only. The script falls back to that table on its own if the API cannot be
+    reached, so this is for air-gapped networks and for sites that would rather
+    make no outbound calls at all.
+
 .PARAMETER ExportCsv
     Write results to this path as CSV. Works in both modes.
 
@@ -73,6 +79,10 @@ param(
 
     [switch]$NoMac,
 
+    # Vendor names come from the API by default; this forces the built-in table.
+    [Alias('NoVendorApi', 'Offline')]
+    [switch]$OfflineVendors,
+
     [Alias('Csv')]
     [string]$ExportCsv,
 
@@ -108,6 +118,7 @@ if ($ExtraArgs) {
             '^(nogui|no-gui|cli|console)$' { $NoGui = $true }
             '^(nodns|no-dns)$'             { $NoDns = $true }
             '^(nomac|no-mac)$'             { $NoMac = $true }
+            '^(offline|offlinevendors|offline-vendors|no-vendor-api)$' { $OfflineVendors = $true }
             '^(help|usage)$'               { $Help = $true }
             '^(range|subnet|target)$'      { $Range = $value;   if (-not $inlineValue) { $i++ } }
             '^ports$'                      { $Ports = $value;   if (-not $inlineValue) { $i++ } }
@@ -146,6 +157,8 @@ OPTIONS                                                      (all optional)
   -TimeoutMs        Per-host ICMP timeout. Default 400.
   -Concurrency      Hosts pinged at once. Default 64.
   -NoDns / -NoMac   Skip reverse DNS / MAC+vendor resolution.
+  -OfflineVendors   Never call the vendor API; use the built-in OUI table.
+                    Also: --offline
   -ExportCsv        Also write the results to this CSV path.
 
 EXAMPLES
@@ -372,20 +385,103 @@ $global:PowerScanOui = @{
     '001AEF' = 'Loxley';        '0C9D92' = 'ASUSTek';       '1458D0' = 'Hewlett Packard'
 }
 
+# Resolved OUIs for this scan, so a subnet full of one vendor costs one call.
+$global:PowerScanVendorCache = @{}
+
+# Trips on the first transport failure or 429, after which the scan stops
+# reaching for the network and rides the table above for the rest of the run.
+$global:PowerScanApiDown = $false
+
+<#
+    Looks an OUI up against api.macadress.com.
+
+    Returns a vendor string when the API answers definitively (including an
+    empty string for an unregistered prefix), or $null when the API could not
+    be reached, which is the caller's signal to fall back to the table.
+
+    Only the 6-hex manufacturer prefix is ever sent - never a full MAC - so no
+    device identifier leaves the network being scanned.
+#>
+function Get-MacVendorFromApi {
+    param([string]$Oui)
+
+    if ($global:PowerScanApiDown) { return $null }
+
+    try {
+        # Windows PowerShell 5.1 still defaults to TLS 1.0 on some builds.
+        if ([Net.ServicePointManager]::SecurityProtocol -notmatch 'Tls12') {
+            [Net.ServicePointManager]::SecurityProtocol =
+                [Net.ServicePointManager]::SecurityProtocol -bor [Net.SecurityProtocolType]::Tls12
+        }
+    }
+    catch { }
+
+    try {
+        $response = Invoke-WebRequest -Uri "https://api.macadress.com/v1/vendor/$Oui" `
+            -TimeoutSec 4 -UseBasicParsing -UserAgent 'PowerScan' -ErrorAction Stop
+        return ([string]$response.Content).Trim()
+    }
+    catch {
+        $status = 0
+        try { $status = [int]$_.Exception.Response.StatusCode } catch { }
+
+        # The error body is on ErrorDetails in PS7 and on the response stream in 5.1.
+        $body = ''
+        try {
+            $body = [string]$_.ErrorDetails.Message
+            if (-not $body -and $_.Exception.Response) {
+                $stream = $_.Exception.Response.GetResponseStream()
+                $body = (New-Object System.IO.StreamReader($stream)).ReadToEnd()
+            }
+        }
+        catch { }
+
+        switch ($status) {
+            400 { return '' }                                 # malformed - nothing to find
+            404 {
+                if ($body -match 'locally administered') { return 'Locally administered' }
+                return ''                                      # valid, simply not registered
+            }
+            default {
+                # 429, DNS failure, no route, proxy block, timeout: stop trying.
+                $global:PowerScanApiDown = $true
+                return $null
+            }
+        }
+    }
+}
+
 function Get-MacVendor {
-    param([string]$Mac)
+    param(
+        [string]$Mac,
+        [bool]$UseApi = $true
+    )
 
     if ([string]::IsNullOrWhiteSpace($Mac) -or $Mac.Length -lt 6) { return '' }
 
     $oui = $Mac.Substring(0, 6).ToUpperInvariant()
-    if ($global:PowerScanOui.ContainsKey($oui)) { return $global:PowerScanOui[$oui] }
+    if ($global:PowerScanVendorCache.ContainsKey($oui)) { return $global:PowerScanVendorCache[$oui] }
 
-    # Locally administered addresses: the second-least-significant bit of the
-    # first octet. Worth flagging, since the OUI is meaningless there.
-    $firstOctet = [Convert]::ToInt32($Mac.Substring(0, 2), 16)
-    if ($firstOctet -band 2) { return 'Locally administered' }
+    $vendor = $null
+    if ($UseApi) { $vendor = Get-MacVendorFromApi $oui }
 
-    return ''
+    if ($null -eq $vendor) {
+        # Offline: the built-in table, then the locally-administered bit (the
+        # second-least-significant of the first octet), which is worth flagging
+        # because the OUI carries no meaning on those addresses.
+        if ($global:PowerScanOui.ContainsKey($oui)) {
+            $vendor = $global:PowerScanOui[$oui]
+        }
+        elseif ([Convert]::ToInt32($Mac.Substring(0, 2), 16) -band 2) {
+            $vendor = 'Locally administered'
+        }
+        else {
+            $vendor = ''
+        }
+    }
+
+    $global:PowerScanVendorCache[$oui] = $vendor
+    return $vendor
 }
 
 function Format-MacAddress {
@@ -409,6 +505,7 @@ function Invoke-IpScan {
         [int[]]$PortList = @(),
         [bool]$ResolveDns = $true,
         [bool]$ResolveMac = $true,
+        [bool]$UseVendorApi = $true,
         $State
     )
 
@@ -507,7 +604,7 @@ function Invoke-IpScan {
                 IPAddress = $node.Ip
                 Hostname  = $hostname
                 MAC       = Format-MacAddress $mac
-                Vendor    = Get-MacVendor $mac
+                Vendor    = Get-MacVendor -Mac $mac -UseApi $UseVendorApi
                 LatencyMs = $node.Latency
                 OpenPorts = (($openPorts | Sort-Object) -join ', ')
                 SortKey   = ConvertTo-IpUInt32 $node.Ip
@@ -565,7 +662,8 @@ function Invoke-ConsoleScan {
     $stopwatch = [System.Diagnostics.Stopwatch]::StartNew()
     try {
         Invoke-IpScan -Targets $targets -TimeoutMs $TimeoutMs -Concurrency $Concurrency `
-            -PortList $PortList -ResolveDns (-not $NoDns) -ResolveMac (-not $NoMac) -State $state
+            -PortList $PortList -ResolveDns (-not $NoDns) -ResolveMac (-not $NoMac) `
+            -UseVendorApi (-not $OfflineVendors) -State $state
     }
     finally {
         $stopwatch.Stop()
@@ -1004,11 +1102,12 @@ function Show-ScannerWindow {
         $ctx.Shell = [powershell]::Create()
         $ctx.Shell.Runspace = $ctx.Runspace
         [void]$ctx.Shell.AddScript({
-            param($Lib, $Targets, $TimeoutMs, $Concurrency, $PortList, $ResolveDns, $ResolveMac, $State)
+            param($Lib, $Targets, $TimeoutMs, $Concurrency, $PortList, $ResolveDns, $ResolveMac, $UseVendorApi, $State)
             try {
                 . ([scriptblock]::Create($Lib))
                 Invoke-IpScan -Targets $Targets -TimeoutMs $TimeoutMs -Concurrency $Concurrency `
-                    -PortList $PortList -ResolveDns $ResolveDns -ResolveMac $ResolveMac -State $State
+                    -PortList $PortList -ResolveDns $ResolveDns -ResolveMac $ResolveMac `
+                    -UseVendorApi $UseVendorApi -State $State
             }
             catch { $State.Error = $_.Exception.Message }
             finally { $State.Running = $false }
@@ -1020,6 +1119,7 @@ function Show-ScannerWindow {
         [void]$ctx.Shell.AddArgument([int[]]$portList)
         [void]$ctx.Shell.AddArgument([bool]$dnsChk.IsChecked)
         [void]$ctx.Shell.AddArgument([bool]$macChk.IsChecked)
+        [void]$ctx.Shell.AddArgument([bool](-not $OfflineVendors))
         [void]$ctx.Shell.AddArgument($ctx.State)
 
         $ctx.Handle = $ctx.Shell.BeginInvoke()
