@@ -45,8 +45,6 @@ IP Address      Hostname                  MAC                 Vendor           m
 
 **Range and ports are positional**, in that order, so `PowerScan.ps1 192.168.1.0/24 22,443` does what it looks like. Everything else is a normal PowerShell switch, with the usual short aliases (`-r`, `-p`, `-c`, `-h`) and prefix matching, so `-NoG` and `-Off` work too.
 
-**Single dash, not double.** `--nogui` is not a PowerShell switch. Through the one-liner it binds to `-Range` as a positional string rather than erroring, so PowerScan checks for it and tells you instead of scanning a nonsense range.
-
 ### Examples
 
 ```powershell
@@ -93,7 +91,7 @@ Everything lives in one file so the one-liner stays a one-liner.
 - **The one-liner.** `iex` can't accept parameters, so the script is compiled with `[scriptblock]::Create()` and invoked with `&`. Arguments then bind to its `param()` block like any other script. (Same trick [Win11Debloat](https://github.com/Raphire/Win11Debloat) uses.)
 - **Discovery.** Async `Ping.SendPingAsync` — a whole batch is launched before any reply is awaited, so a /24 sweeps in a couple of seconds rather than a couple of minutes.
 - **Enrichment.** Once a batch answers, reverse DNS and TCP connects fire concurrently for the whole batch, and the MAC comes out of the Windows neighbor cache (`Get-NetNeighbor`, falling back to `arp.exe`) while the entries are still warm from the ping.
-- **Vendors.** Looked up against [api.macadress.com](https://macadress.com/free-mac-address-api), which needs no key, with a built-in OUI table as the fallback. See below.
+- **Vendors.** Looked up against [api.macadress.com](https://macadress.com/free-mac-address-api), with a built-in OUI table as the fallback. See below.
 - **The window.** WPF built from XAML held as a string and parsed with `XamlReader.Load()`, with `shell:WindowChrome` for the custom title bar.
 - **Responsiveness.** The scan runs in a background runspace and pushes results onto a `ConcurrentQueue`. A `DispatcherTimer` on the UI thread drains that queue into the bound collection, so the window never blocks and every control touch stays on the dispatcher thread.
 

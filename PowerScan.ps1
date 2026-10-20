@@ -93,9 +93,7 @@ param(
 
 $ErrorActionPreference = 'Stop'
 
-# Single source of truth for the version. The release workflow refuses to
-# publish a tag whose name disagrees with this, so a released file can never
-# misreport which build it is.
+# Single source of truth for the version.
 $PowerScanVersion = '1.0.0'
 
 if ($Version) {
@@ -103,14 +101,6 @@ if ($Version) {
     return
 }
 
-# A positional value that looks like a switch is a mistyped parameter.
-#
-# This matters most through the one-liner. `powershell.exe -File x.ps1 --nogui`
-# rewrites --nogui to -nogui and binds the switch, but
-# `& ([scriptblock]::Create(...)) --nogui` uses expression-mode binding, which
-# does no such rewriting -- so "--nogui" lands in -Range as a positional
-# string. Without this check the window opens with a nonsense range and the
-# mistake looks like the switch being ignored.
 foreach ($positional in @(
         @{ Name = 'Range'; Value = $Range },
         @{ Name = 'Ports'; Value = $Ports })) {
