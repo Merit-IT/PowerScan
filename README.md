@@ -3,13 +3,13 @@
 A network scanner that runs from one line of PowerShell. No install, no modules, no admin rights.
 
 ```powershell
-& ([scriptblock]::Create((irm "https://raw.githubusercontent.com/kevinmcgillicuddy/PowerScan/main/PowerScan.ps1")))
+& ([scriptblock]::Create((irm "https://github.com/kevinmcgillicuddy/PowerScan/releases/latest/download/PowerScan.ps1")))
 ```
 
 That opens a window, detects the subnet you're on, and starts scanning. For a table in the console instead:
 
 ```powershell
-& ([scriptblock]::Create((irm "https://raw.githubusercontent.com/kevinmcgillicuddy/PowerScan/main/PowerScan.ps1"))) -NoGui
+& ([scriptblock]::Create((irm "https://github.com/kevinmcgillicuddy/PowerScan/releases/latest/download/PowerScan.ps1"))) -NoGui
 ```
 
 ## What it finds
@@ -41,6 +41,7 @@ IP Address      Hostname                  MAC                 Vendor           m
 | `-OfflineVendors`, `-Offline` | off | Never call the vendor API; use the built-in OUI table only. |
 | `-ExportCsv` | off | Also write the results to a CSV path. |
 | `-Help`, `-h` | — | Usage. |
+| `-Version`, `-v` | — | Print the version and exit. |
 
 **Range and ports are positional**, in that order, so `PowerScan.ps1 192.168.1.0/24 22,443` does what it looks like. Everything else is a normal PowerShell switch, with the usual short aliases (`-r`, `-p`, `-c`, `-h`) and prefix matching, so `-NoG` and `-Off` work too.
 
@@ -63,7 +64,7 @@ IP Address      Hostname                  MAC                 Vendor           m
 Passing arguments through the one-liner works the same way — they bind to the downloaded script's `param()` block:
 
 ```powershell
-& ([scriptblock]::Create((irm "https://raw.githubusercontent.com/kevinmcgillicuddy/PowerScan/main/PowerScan.ps1"))) -NoGui -Range 10.0.0.0/24 -Ports 445
+& ([scriptblock]::Create((irm "https://github.com/kevinmcgillicuddy/PowerScan/releases/latest/download/PowerScan.ps1"))) -NoGui -Range 10.0.0.0/24 -Ports 445
 ```
 
 ## The GUI
@@ -80,7 +81,7 @@ The GUI needs WPF on an STA thread, which is the default under `powershell.exe`.
 If `irm` fails on an older build, TLS 1.2 isn't the default there:
 
 ```powershell
-[Net.ServicePointManager]::SecurityProtocol = 'Tls12'; & ([scriptblock]::Create((irm "https://raw.githubusercontent.com/kevinmcgillicuddy/PowerScan/main/PowerScan.ps1")))
+[Net.ServicePointManager]::SecurityProtocol = 'Tls12'; & ([scriptblock]::Create((irm "https://github.com/kevinmcgillicuddy/PowerScan/releases/latest/download/PowerScan.ps1")))
 ```
 
 ## How it works
@@ -107,6 +108,30 @@ Details that matter in practice:
 - **`-OfflineVendors`** skips the API entirely, for sites that would rather make no outbound calls at all.
 
 The built-in table carries ~150 common prefixes and is deliberately kept, so the tool stays useful on an isolated network. The API gives fuller names where it's reachable — `Apple, Inc.` and `Raspberry Pi Foundation` rather than the table's `Apple` and `Raspberry Pi`.
+
+## Releases and the short URL
+
+The one-liner points at **`/releases/latest/download/PowerScan.ps1`**, not at `main`. That matters: with a raw-`main` link, every push lands in a technician's elevated prompt the moment it's committed. With a release, you tag deliberately, and rolling back is moving a tag.
+
+Cutting a release is pushing a tag:
+
+```powershell
+git tag v1.0.1
+git push origin v1.0.1
+```
+
+[`release.yml`](.github/workflows/release.yml) then checks the script parses, checks `$PowerScanVersion` agrees with the tag, smoke-tests both the console path and the `scriptblock` path a technician actually uses, and only then publishes. A tag that disagrees with the version in the script fails the build rather than shipping a file that misreports itself.
+
+To put it behind your own hostname, a 301 is all it takes — this is exactly what Win11Debloat's `debloat.raphi.re` does:
+
+```
+https://scanner.example.com/  →  301  →
+https://github.com/kevinmcgillicuddy/PowerScan/releases/latest/download/PowerScan.ps1
+```
+
+`irm` follows the redirect, and release assets come back as `application/octet-stream` but still arrive as a `String`, so `[scriptblock]::Create()` is happy. On Cloudflare that's a proxied DNS record plus one Redirect Rule, no Worker required.
+
+Worth knowing before you point a domain at this: that DNS record becomes a path to elevated code execution on every machine that runs the one-liner. Whoever can edit it can run anything as administrator. Lock the account down accordingly.
 
 ## A note on use
 

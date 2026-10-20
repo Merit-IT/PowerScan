@@ -85,15 +85,28 @@ param(
     [string]$ExportCsv,
 
     [Alias('h', '?')]
-    [switch]$Help
+    [switch]$Help,
+
+    [Alias('v')]
+    [switch]$Version
 )
 
 $ErrorActionPreference = 'Stop'
 
-if ($Help) {
-    Write-Host @'
+# Single source of truth for the version. The release workflow refuses to
+# publish a tag whose name disagrees with this, so a released file can never
+# misreport which build it is.
+$PowerScanVersion = '1.0.0'
 
-PowerScan - PowerShell IP scanner with a WPF GUI
+if ($Version) {
+    Write-Host $PowerScanVersion
+    return
+}
+
+if ($Help) {
+    Write-Host ''
+    Write-Host "PowerScan $PowerScanVersion - PowerShell IP scanner with a WPF GUI"
+    Write-Host @'
 
 USAGE
   PowerScan.ps1 [[-Range] <range>] [[-Ports] <list>] [-NoGui] [-TimeoutMs <n>]
@@ -117,6 +130,7 @@ OPTIONS                                                      (all optional)
   -NoDns / -NoMac   Skip reverse DNS / MAC+vendor resolution.
   -OfflineVendors   Never call the vendor API; use the built-in OUI table.
   -ExportCsv        Also write the results to this CSV path.
+  -Version, -v      Print the version and exit.
 
 EXAMPLES
   PowerScan.ps1
@@ -613,6 +627,7 @@ function Invoke-ConsoleScan {
     $state = New-ScanState
 
     Write-Host ''
+    Write-Host "PowerScan $PowerScanVersion" -ForegroundColor DarkGray
     Write-Host "Scanning $Range " -NoNewline
     Write-Host "($($targets.Count) addresses)" -ForegroundColor DarkGray
 
@@ -814,8 +829,12 @@ $WindowXaml = @'
 
             <!-- Title bar -->
             <Grid Grid.Row="0" Background="{StaticResource Card}">
-                <TextBlock Text="PowerScan" FontWeight="SemiBold" Margin="16,0,0,0"
-                           VerticalAlignment="Center" Foreground="{StaticResource Fg}"/>
+                <StackPanel Orientation="Horizontal" VerticalAlignment="Center" Margin="16,0,0,0">
+                    <TextBlock Text="PowerScan" FontWeight="SemiBold"
+                               Foreground="{StaticResource Fg}"/>
+                    <TextBlock Text="@VERSION@" FontSize="11" Margin="8,1,0,0"
+                               VerticalAlignment="Center" Foreground="{StaticResource Muted}"/>
+                </StackPanel>
                 <StackPanel Orientation="Horizontal" HorizontalAlignment="Right" VerticalAlignment="Center">
                     <Button x:Name="MinBtn" Style="{StaticResource ChromeBtn}" Content="&#xE921;" ToolTip="Minimize"/>
                     <Button x:Name="CloseBtn" Style="{StaticResource CloseBtn}" Content="&#xE8BB;" ToolTip="Close"/>
@@ -956,6 +975,7 @@ function Show-ScannerWindow {
 
     $xaml = $WindowXaml
     foreach ($key in $theme.Keys) { $xaml = $xaml.Replace("@$key@", $theme[$key]) }
+    $xaml = $xaml.Replace('@VERSION@', $PowerScanVersion)
 
     $reader = [System.Xml.XmlReader]::Create([System.IO.StringReader]::new($xaml))
     try { $window = [System.Windows.Markup.XamlReader]::Load($reader) }

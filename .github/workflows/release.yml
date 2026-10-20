@@ -1,0 +1,75 @@
+name: Release
+
+# Tagging is the publish action: pushing v1.2.3 validates the script and
+# attaches it to a GitHub release, which is what
+# /releases/latest/download/PowerScan.ps1 serves to the one-liner.
+on:
+  push:
+    tags:
+      - 'v*'
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  release:
+    # Windows, not Linux: PowerScan reads the ARP table and calls WPF, so the
+    # only smoke test worth running is one on the platform it ships to.
+    runs-on: windows-latest
+
+    defaults:
+      run:
+        shell: pwsh
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Check the script parses
+        run: |
+          $errors = $null
+          [System.Management.Automation.Language.Parser]::ParseFile(
+              "$PWD/PowerScan.ps1", [ref]$null, [ref]$errors) | Out-Null
+          if ($errors) {
+              foreach ($e in $errors) {
+                  Write-Host "::error file=PowerScan.ps1,line=$($e.Extent.StartLineNumber)::$($e.Message)"
+              }
+              throw "PowerScan.ps1 has $($errors.Count) parse error(s); refusing to release."
+          }
+          Write-Host 'Parsed clean.'
+
+      # The one-liner puts a released file straight into technicians' elevated
+      # prompts, so a build that misreports its own version must not ship.
+      # Asking the script for its version beats grepping for the variable: it
+      # keeps one source of truth and proves -Version itself works.
+      - name: Check the version matches the tag
+        run: |
+          $tag = '${{ github.ref_name }}'
+          if ($tag -notmatch '^v\d+\.\d+\.\d+$') {
+              throw "Tag '$tag' is not of the form vMAJOR.MINOR.PATCH."
+          }
+
+          $scriptVersion = (& pwsh -NoProfile -File ./PowerScan.ps1 -Version | Out-String).Trim()
+          if ($scriptVersion -ne $tag.TrimStart('v')) {
+              throw "Tag is $tag but PowerScan.ps1 reports $scriptVersion. Update the script, or retag."
+          }
+          Write-Host "Version $scriptVersion matches tag $tag."
+
+      - name: Smoke-test the console path
+        run: |
+          # Loopback is the only address guaranteed to answer on a runner.
+          & pwsh -NoProfile -File ./PowerScan.ps1 -NoGui -Range 127.0.0.1
+          if ($LASTEXITCODE -ne 0) { throw "Console scan exited $LASTEXITCODE." }
+
+      - name: Smoke-test the one-liner path
+        run: |
+          # How technicians will actually invoke it: compiled from text, with
+          # no $PSCommandPath and parameters bound through the scriptblock.
+          $source = Get-Content ./PowerScan.ps1 -Raw
+          & ([scriptblock]::Create($source)) -NoGui -Range 127.0.0.1 -OfflineVendors
+
+      - name: Publish release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh release create '${{ github.ref_name }}' PowerScan.ps1 --title 'PowerScan ${{ github.ref_name }}' --generate-notes
