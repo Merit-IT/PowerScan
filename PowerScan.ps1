@@ -101,7 +101,7 @@ param(
 $ErrorActionPreference = 'Stop'
 
 # Single source of truth for the version.
-$PowerScanVersion = '1.0.0'
+$PowerScanVersion = '1.0.1'
 
 if ($Version) {
     Write-Host $PowerScanVersion
