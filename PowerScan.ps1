@@ -53,7 +53,7 @@
     Prints a table of live hosts and which of those ports are open.
 
 .LINK
-    https://github.com/kevinmcgillicuddy/PowerScan
+    https://github.com/Merit-IT/PowerScan
 #>
 [CmdletBinding()]
 param(

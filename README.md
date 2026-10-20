@@ -3,13 +3,13 @@
 A network scanner that runs from one line of PowerShell. No install, no modules, no admin rights.
 
 ```powershell
-& ([scriptblock]::Create((irm "https://github.com/kevinmcgillicuddy/PowerScan/releases/latest/download/PowerScan.ps1")))
+& ([scriptblock]::Create((irm "https://github.com/Merit-IT/PowerScan/releases/latest/download/PowerScan.ps1")))
 ```
 
 That opens a window, detects the subnet you're on, and starts scanning. For a table in the console instead:
 
 ```powershell
-& ([scriptblock]::Create((irm "https://github.com/kevinmcgillicuddy/PowerScan/releases/latest/download/PowerScan.ps1"))) -NoGui
+& ([scriptblock]::Create((irm "https://github.com/Merit-IT/PowerScan/releases/latest/download/PowerScan.ps1"))) -NoGui
 ```
 
 ## What it finds
@@ -64,7 +64,7 @@ IP Address      Hostname                  MAC                 Vendor           m
 Passing arguments through the one-liner works the same way — they bind to the downloaded script's `param()` block:
 
 ```powershell
-& ([scriptblock]::Create((irm "https://github.com/kevinmcgillicuddy/PowerScan/releases/latest/download/PowerScan.ps1"))) -NoGui -Range 10.0.0.0/24 -Ports 445
+& ([scriptblock]::Create((irm "https://github.com/Merit-IT/PowerScan/releases/latest/download/PowerScan.ps1"))) -NoGui -Range 10.0.0.0/24 -Ports 445
 ```
 
 ## The GUI
@@ -81,7 +81,7 @@ The GUI needs WPF on an STA thread, which is the default under `powershell.exe`.
 If `irm` fails on an older build, TLS 1.2 isn't the default there:
 
 ```powershell
-[Net.ServicePointManager]::SecurityProtocol = 'Tls12'; & ([scriptblock]::Create((irm "https://github.com/kevinmcgillicuddy/PowerScan/releases/latest/download/PowerScan.ps1")))
+[Net.ServicePointManager]::SecurityProtocol = 'Tls12'; & ([scriptblock]::Create((irm "https://github.com/Merit-IT/PowerScan/releases/latest/download/PowerScan.ps1")))
 ```
 
 ## How it works
@@ -125,8 +125,8 @@ git push origin v1.0.1
 To put it behind your own hostname, a 301 is all it takes — this is exactly what Win11Debloat's `debloat.raphi.re` does:
 
 ```
-https://scanner.example.com/  →  301  →
-https://github.com/kevinmcgillicuddy/PowerScan/releases/latest/download/PowerScan.ps1
+https://scanner.meritit.us/  →  301  →
+https://github.com/Merit-IT/PowerScan/releases/latest/download/PowerScan.ps1
 ```
 
 `irm` follows the redirect, and release assets come back as `application/octet-stream` but still arrive as a `String`, so `[scriptblock]::Create()` is happy. On Cloudflare that's a proxied DNS record plus one Redirect Rule, no Worker required.
