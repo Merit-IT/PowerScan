@@ -41,6 +41,13 @@
     reached, so this is for air-gapped networks and for sites that would rather
     make no outbound calls at all.
 
+.PARAMETER Quiet
+    Console mode only. Prints just the summary line, dropping the banner, the
+    per-batch progress lines and the results table. A busy /24 produces roughly
+    11KB of table, which is enough for an RMM agent to truncate the output and
+    mark the job failed; pair -Quiet with -ExportCsv to keep the data without
+    the volume.
+
 .PARAMETER ExportCsv
     Write results to this path as CSV. Works in both modes.
 
@@ -95,13 +102,19 @@ param(
     # unconditional exit would close the window of anyone who pasted the
     # one-liner into their own shell.
     [Alias('Rmm')]
-    [switch]$SetExitCode
+    [switch]$SetExitCode,
+
+    # Console mode only: drop the banner, the per-batch progress lines and the
+    # results table, leaving the one summary line. Pairs with -ExportCsv when
+    # the caller wants the data without the output volume.
+    [Alias('q')]
+    [switch]$Quiet
 )
 
 $ErrorActionPreference = 'Stop'
 
 # Single source of truth for the version.
-$PowerScanVersion = '1.0.2'
+$PowerScanVersion = '1.0.3'
 
 if ($Version) {
     Write-Host $PowerScanVersion
@@ -154,6 +167,9 @@ OPTIONS                                                      (all optional)
   -SetExitCode      Exit 0 on success, 1 on failure, for RMM agents and
                     schedulers that judge the run by its exit code.
                     Also: -Rmm
+  -Quiet, -q        Print only the summary line: no banner, no progress,
+                    no table. Use with -ExportCsv when an RMM agent would
+                    truncate a full table and fail the job over it.
 
 EXAMPLES
   PowerScan.ps1
@@ -684,16 +700,18 @@ function Invoke-ConsoleScan {
     $targets = Expand-ScanRange $Range
     $state = New-ScanState
 
-    Write-Host ''
-    Write-Host "PowerScan $PowerScanVersion" -ForegroundColor DarkGray
-    Write-Host "Scanning $Range " -NoNewline
-    Write-Host "($($targets.Count) addresses)" -ForegroundColor DarkGray
+    if (-not $Quiet) {
+        Write-Host ''
+        Write-Host "PowerScan $PowerScanVersion" -ForegroundColor DarkGray
+        Write-Host "Scanning $Range " -NoNewline
+        Write-Host "($($targets.Count) addresses)" -ForegroundColor DarkGray
+    }
 
     $stopwatch = [System.Diagnostics.Stopwatch]::StartNew()
     try {
         Invoke-IpScan -Targets $targets -TimeoutMs $TimeoutMs -Concurrency $Concurrency `
             -PortList $PortList -ResolveDns (-not $NoDns) -ResolveMac (-not $NoMac) `
-            -UseVendorApi (-not $OfflineVendors) -ShowProgress $true -State $state
+            -UseVendorApi (-not $OfflineVendors) -ShowProgress (-not $Quiet) -State $state
     }
     finally {
         $stopwatch.Stop()
@@ -704,28 +722,40 @@ function Invoke-ConsoleScan {
     while ($state.Queue.TryDequeue([ref]$item)) { $results += $item }
     $results = @($results | Sort-Object SortKey)
 
-    Write-Host ''
-    if ($results.Count -eq 0) {
-        Write-Host 'No hosts responded.' -ForegroundColor Yellow
+    # The table is the bulk of the output -- around 11KB for a busy /24, which
+    # is enough for an RMM agent to truncate the result and mark the job
+    # failed. -Quiet leaves just the summary line.
+    if (-not $Quiet) {
+        Write-Host ''
+        if ($results.Count -eq 0) {
+            Write-Host 'No hosts responded.' -ForegroundColor Yellow
+        }
+        else {
+            $columns = @(
+                @{ Name = 'IP Address'; Expression = 'IPAddress' }
+                @{ Name = 'Hostname';   Expression = 'Hostname' }
+                @{ Name = 'MAC';        Expression = 'MAC' }
+                @{ Name = 'Vendor';     Expression = 'Vendor' }
+                @{ Name = 'ms';         Expression = 'LatencyMs'; Align = 'right' }
+            )
+            if ($PortList.Count -gt 0) {
+                $columns += @{ Name = 'Open Ports'; Expression = 'OpenPorts' }
+            }
+
+            $results | Format-Table -Property $columns -AutoSize | Out-String -Width 200 | Write-Host
+        }
+    }
+
+    $summary = "{0} host(s) up of {1} scanned in {2:n1}s" -f `
+        $results.Count, $targets.Count, $stopwatch.Elapsed.TotalSeconds
+
+    if ($Quiet) {
+        Write-Host $summary
     }
     else {
-        $columns = @(
-            @{ Name = 'IP Address'; Expression = 'IPAddress' }
-            @{ Name = 'Hostname';   Expression = 'Hostname' }
-            @{ Name = 'MAC';        Expression = 'MAC' }
-            @{ Name = 'Vendor';     Expression = 'Vendor' }
-            @{ Name = 'ms';         Expression = 'LatencyMs'; Align = 'right' }
-        )
-        if ($PortList.Count -gt 0) {
-            $columns += @{ Name = 'Open Ports'; Expression = 'OpenPorts' }
-        }
-
-        $results | Format-Table -Property $columns -AutoSize | Out-String -Width 200 | Write-Host
+        Write-Host $summary -ForegroundColor DarkGray
+        Write-Host ''
     }
-
-    Write-Host ("{0} host(s) up of {1} scanned in {2:n1}s" -f `
-        $results.Count, $targets.Count, $stopwatch.Elapsed.TotalSeconds) -ForegroundColor DarkGray
-    Write-Host ''
 
     $results
 }
