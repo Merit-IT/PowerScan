@@ -101,7 +101,7 @@ param(
 $ErrorActionPreference = 'Stop'
 
 # Single source of truth for the version.
-$PowerScanVersion = '1.0.1'
+$PowerScanVersion = '1.0.2'
 
 if ($Version) {
     Write-Host $PowerScanVersion
@@ -500,6 +500,9 @@ function Invoke-IpScan {
         [bool]$ResolveDns = $true,
         [bool]$ResolveMac = $true,
         [bool]$UseVendorApi = $true,
+        # Console mode prints a line per batch. The GUI reads the same counters
+        # off $State instead, so it leaves this off.
+        [bool]$ShowProgress = $false,
         $State
     )
 
@@ -518,11 +521,21 @@ function Invoke-IpScan {
 
         # --- Fire every ping in the batch before awaiting any of them ---
         $pings = foreach ($ip in $batch) {
-            $pinger = New-Object System.Net.NetworkInformation.Ping
-            [pscustomobject]@{
-                Ip     = $ip
-                Pinger = $pinger
-                Task   = $pinger.SendPingAsync($ip, $TimeoutMs)
+            $pinger = $null
+            try {
+                $pinger = New-Object System.Net.NetworkInformation.Ping
+                [pscustomobject]@{
+                    Ip     = $ip
+                    Pinger = $pinger
+                    Task   = $pinger.SendPingAsync($ip, $TimeoutMs)
+                }
+            }
+            catch {
+                # SendPingAsync can throw synchronously, not just fault its
+                # task: no route to the network, socket exhaustion, a raw
+                # socket the host refuses. One address must not end the scan.
+                if ($pinger) { try { $pinger.Dispose() } catch { } }
+                $State.Done = $State.Done + 1
             }
         }
 
@@ -540,9 +553,19 @@ function Invoke-IpScan {
             $State.Done = $State.Done + 1
         }
 
-        if ($alive.Count -eq 0) { continue }
+        if ($alive.Count -eq 0) {
+            if ($ShowProgress) {
+                Write-Host ("  {0}/{1} scanned, {2} up" -f $State.Done, $State.Total, $State.Found) -ForegroundColor DarkGray
+            }
+            continue
+        }
 
-        $arp = if ($ResolveMac) { Get-ArpMap } else { @{} }
+        # Get-ArpMap guards Get-NetNeighbor internally, but its arp.exe
+        # fallback runs inside that catch and can throw in turn.
+        $arp = @{}
+        if ($ResolveMac) {
+            try { $arp = Get-ArpMap } catch { }
+        }
 
         # --- Start every enrichment task, then collect ---
         $dnsTasks = @{}
@@ -593,16 +616,28 @@ function Invoke-IpScan {
 
             $mac = if ($arp.ContainsKey($node.Ip)) { $arp[$node.Ip] } else { '' }
 
+            # Resolved before the object is built rather than inside it.
+            # Get-MacVendor reaches the network, and a throw inside the
+            # Enqueue expression would take the whole scan with it.
+            $macText = ''
+            $vendor = ''
+            try { $macText = Format-MacAddress $mac } catch { }
+            try { $vendor = Get-MacVendor -Mac $mac -UseApi $UseVendorApi } catch { }
+
             $State.Found = $State.Found + 1
             $State.Queue.Enqueue([pscustomobject]@{
                 IPAddress = $node.Ip
                 Hostname  = $hostname
-                MAC       = Format-MacAddress $mac
-                Vendor    = Get-MacVendor -Mac $mac -UseApi $UseVendorApi
+                MAC       = $macText
+                Vendor    = $vendor
                 LatencyMs = $node.Latency
                 OpenPorts = (($openPorts | Sort-Object) -join ', ')
                 SortKey   = ConvertTo-IpUInt32 $node.Ip
             })
+        }
+
+        if ($ShowProgress) {
+            Write-Host ("  {0}/{1} scanned, {2} up" -f $State.Done, $State.Total, $State.Found) -ForegroundColor DarkGray
         }
     }
 }
@@ -658,7 +693,7 @@ function Invoke-ConsoleScan {
     try {
         Invoke-IpScan -Targets $targets -TimeoutMs $TimeoutMs -Concurrency $Concurrency `
             -PortList $PortList -ResolveDns (-not $NoDns) -ResolveMac (-not $NoMac) `
-            -UseVendorApi (-not $OfflineVendors) -State $state
+            -UseVendorApi (-not $OfflineVendors) -ShowProgress $true -State $state
     }
     finally {
         $stopwatch.Stop()
