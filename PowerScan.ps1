@@ -94,7 +94,7 @@ param(
 $ErrorActionPreference = 'Stop'
 
 # Single source of truth for the version.
-$PowerScanVersion = '1.0.0'
+$PowerScanVersion = '1.0.1'
 
 if ($Version) {
     Write-Host $PowerScanVersion
@@ -1204,6 +1204,15 @@ if (-not $NoGui) {
 
 if (-not $NoGui -and [System.Threading.Thread]::CurrentThread.GetApartmentState() -ne 'STA') {
     Write-Warning 'This host is running MTA, which cannot show a WPF window. Re-run under powershell.exe (or pwsh -STA) for the GUI. Falling back to console output.'
+    $NoGui = $true
+}
+
+# No desktop to draw on: an RMM agent, a service, or a scheduled task running
+# as SYSTEM in session 0. WPF does not error there -- it creates a window
+# nobody can see and ShowDialog() blocks until the caller times out -- so this
+# has to be caught rather than left to fail.
+if (-not $NoGui -and -not [Environment]::UserInteractive) {
+    Write-Warning 'No interactive desktop (service, scheduled task or RMM job), so the window cannot be shown. Falling back to console output.'
     $NoGui = $true
 }
 

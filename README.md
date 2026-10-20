@@ -109,6 +109,29 @@ Details that matter in practice:
 
 The built-in table carries ~150 common prefixes and is deliberately kept, so the tool stays useful on an isolated network. The API gives fuller names where it's reachable — `Apple, Inc.` and `Raspberry Pi Foundation` rather than the table's `Apple` and `Raspberry Pi`.
 
+## Running it from an RMM
+
+NinjaOne, and any other agent that runs scripts as SYSTEM, needs two things the interactive one-liner doesn't:
+
+```powershell
+[Net.ServicePointManager]::SecurityProtocol = [Net.ServicePointManager]::SecurityProtocol -bor [Net.SecurityProtocolType]::Tls12
+& ([scriptblock]::Create((irm "https://scanner.meritit.us/"))) -NoGui -Range 192.168.1.0/24
+```
+
+**TLS 1.2 first.** Windows PowerShell 5.1 starts a fresh process on .NET's default, which is still TLS 1.0 on many hosts. GitHub and Cloudflare refuse that, and you get:
+
+```
+irm : The request was aborted: Could not create SSL/TLS secure channel.
+```
+
+This has to be set *before* the `irm` — the script sets TLS 1.2 for its own vendor lookups, but by then the download has already failed. `-bor` adds 1.2 rather than replacing whatever else is enabled.
+
+**`-NoGui` always.** RMM agents run in session 0, which has no desktop. PowerScan detects that and falls back to console output on its own, but passing `-NoGui` makes the intent explicit and skips the warning.
+
+**Pick the range explicitly.** Auto-detection follows the adapter holding the default gateway, which on a server with several NICs may not be the subnet you meant.
+
+Results go to stdout as a table, which the agent captures as script output. For something a script can parse, use `-ExportCsv` and collect the file.
+
 ## Releases and the short URL
 
 The one-liner points at **`/releases/latest/download/PowerScan.ps1`**, not at `main`. That matters: with a raw-`main` link, every push lands in a technician's elevated prompt the moment it's committed. With a release, you tag deliberately, and rolling back is moving a tag.
