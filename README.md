@@ -45,6 +45,8 @@ IP Address      Hostname                  MAC                 Vendor           m
 
 **Range and ports are positional**, in that order, so `PowerScan.ps1 192.168.1.0/24 22,443` does what it looks like. Everything else is a normal PowerShell switch, with the usual short aliases (`-r`, `-p`, `-c`, `-h`) and prefix matching, so `-NoG` and `-Off` work too.
 
+**Single dash, not double.** `--nogui` is not a PowerShell switch. Through the one-liner it binds to `-Range` as a positional string rather than erroring, so PowerScan checks for it and tells you instead of scanning a nonsense range.
+
 ### Examples
 
 ```powershell

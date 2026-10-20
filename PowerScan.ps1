@@ -103,6 +103,28 @@ if ($Version) {
     return
 }
 
+# A positional value that looks like a switch is a mistyped parameter.
+#
+# This matters most through the one-liner. `powershell.exe -File x.ps1 --nogui`
+# rewrites --nogui to -nogui and binds the switch, but
+# `& ([scriptblock]::Create(...)) --nogui` uses expression-mode binding, which
+# does no such rewriting -- so "--nogui" lands in -Range as a positional
+# string. Without this check the window opens with a nonsense range and the
+# mistake looks like the switch being ignored.
+foreach ($positional in @(
+        @{ Name = 'Range'; Value = $Range },
+        @{ Name = 'Ports'; Value = $Ports })) {
+
+    if ($positional.Value -like '-*') {
+        Write-Host ''
+        Write-Host "'$($positional.Value)' was taken as the -$($positional.Name) value, not as a switch." -ForegroundColor Red
+        Write-Host 'PowerScan uses ordinary PowerShell switches, single dash:' -ForegroundColor DarkGray
+        Write-Host '  -NoGui  -NoDns  -NoMac  -OfflineVendors  -Help' -ForegroundColor DarkGray
+        Write-Host ''
+        return
+    }
+}
+
 if ($Help) {
     Write-Host ''
     Write-Host "PowerScan $PowerScanVersion - PowerShell IP scanner with a WPF GUI"
@@ -1204,7 +1226,9 @@ $results = if ($NoGui) {
         Write-Host $_.Exception.Message -ForegroundColor Red
         Write-Host "Run with -Help for usage." -ForegroundColor DarkGray
         Write-Host ''
-        exit 1
+        # return, not exit: through the one-liner this runs inside the
+        # technician's own shell, and exit would close their window.
+        return
     }
 }
 else {
