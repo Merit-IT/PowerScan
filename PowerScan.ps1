@@ -88,7 +88,14 @@ param(
     [switch]$Help,
 
     [Alias('v')]
-    [switch]$Version
+    [switch]$Version,
+
+    # Exit with 0 on success and 1 on failure, for callers that judge the run
+    # by its exit code (RMM agents, schedulers, CI). Off by default: an
+    # unconditional exit would close the window of anyone who pasted the
+    # one-liner into their own shell.
+    [Alias('Rmm')]
+    [switch]$SetExitCode
 )
 
 $ErrorActionPreference = 'Stop'
@@ -111,6 +118,7 @@ foreach ($positional in @(
         Write-Host 'PowerScan uses ordinary PowerShell switches, single dash:' -ForegroundColor DarkGray
         Write-Host '  -NoGui  -NoDns  -NoMac  -OfflineVendors  -Help' -ForegroundColor DarkGray
         Write-Host ''
+        if ($SetExitCode) { exit 1 }
         return
     }
 }
@@ -143,6 +151,9 @@ OPTIONS                                                      (all optional)
   -OfflineVendors   Never call the vendor API; use the built-in OUI table.
   -ExportCsv        Also write the results to this CSV path.
   -Version, -v      Print the version and exit.
+  -SetExitCode      Exit 0 on success, 1 on failure, for RMM agents and
+                    schedulers that judge the run by its exit code.
+                    Also: -Rmm
 
 EXAMPLES
   PowerScan.ps1
@@ -651,7 +662,6 @@ function Invoke-ConsoleScan {
     }
     finally {
         $stopwatch.Stop()
-        Write-Progress -Activity 'Scanning' -Completed
     }
 
     $results = @()
@@ -1207,6 +1217,8 @@ if (-not $NoGui -and [System.Threading.Thread]::CurrentThread.GetApartmentState(
     $NoGui = $true
 }
 
+$exitCode = 0
+
 $results = if ($NoGui) {
     try {
         Invoke-ConsoleScan -Range $Range -PortList $portList
@@ -1216,9 +1228,7 @@ $results = if ($NoGui) {
         Write-Host $_.Exception.Message -ForegroundColor Red
         Write-Host "Run with -Help for usage." -ForegroundColor DarkGray
         Write-Host ''
-        # return, not exit: through the one-liner this runs inside the
-        # technician's own shell, and exit would close their window.
-        return
+        $exitCode = 1
     }
 }
 else {
@@ -1226,7 +1236,18 @@ else {
 }
 
 if ($ExportCsv -and $results) {
-    $results | Select-Object IPAddress, Hostname, MAC, Vendor, LatencyMs, OpenPorts |
-        Export-Csv -Path $ExportCsv -NoTypeInformation -Encoding UTF8
-    Write-Host "Exported $(@($results).Count) row(s) to $ExportCsv"
+    try {
+        $results | Select-Object IPAddress, Hostname, MAC, Vendor, LatencyMs, OpenPorts |
+            Export-Csv -Path $ExportCsv -NoTypeInformation -Encoding UTF8
+        Write-Host "Exported $(@($results).Count) row(s) to $ExportCsv"
+    }
+    catch {
+        Write-Host "Could not write '$ExportCsv': $($_.Exception.Message)" -ForegroundColor Red
+        $exitCode = 1
+    }
 }
+
+# A scan that finds nothing is still a successful scan, so only a real failure
+# reports non-zero. Without -SetExitCode the script just returns, leaving the
+# caller's shell alone.
+if ($SetExitCode) { exit $exitCode }

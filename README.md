@@ -42,6 +42,7 @@ IP Address      Hostname                  MAC                 Vendor           m
 | `-ExportCsv` | off | Also write the results to a CSV path. |
 | `-Help`, `-h` | — | Usage. |
 | `-Version`, `-v` | — | Print the version and exit. |
+| `-SetExitCode, -Rmm` | — | Exit with 0 on success and 1 on failure, for callers that judge the run by its exit code 
 
 **Range and ports are positional**, in that order, so `PowerScan.ps1 192.168.1.0/24 22,443` does what it looks like. Everything else is a normal PowerShell switch, with the usual short aliases (`-r`, `-p`, `-c`, `-h`) and prefix matching, so `-NoG` and `-Off` work too.
 
