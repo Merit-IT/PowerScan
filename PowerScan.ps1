@@ -19,7 +19,6 @@
 
 .PARAMETER NoGui
     Skip the window and print results to the console as a table.
-    '--nogui' is accepted as well.
 
 .PARAMETER Ports
     Comma-separated TCP ports to test on every live host, e.g. '22,80,443,3389'.
@@ -58,8 +57,7 @@
 #>
 [CmdletBinding()]
 param(
-    # Positions are declared rather than left implicit, so that reordering this
-    # block can never silently change what a bare argument binds to.
+
     [Parameter(Position = 0)]
     [Alias('r', 'Subnet', 'Target')]
     [string]$Range,
@@ -87,58 +85,18 @@ param(
     [string]$ExportCsv,
 
     [Alias('h', '?')]
-    [switch]$Help,
-
-    # Catches '--nogui' and friends, which PowerShell will not bind to a switch.
-    [Parameter(ValueFromRemainingArguments = $true)]
-    [string[]]$ExtraArgs
+    [switch]$Help
 )
 
 $ErrorActionPreference = 'Stop'
 
-# ---------------------------------------------------------------------------
-# GNU-style long flags. PowerShell parses '--nogui' as a positional argument,
-# so fold anything that looks like a known flag back into the real parameters.
-# ---------------------------------------------------------------------------
-if ($ExtraArgs) {
-    for ($i = 0; $i -lt $ExtraArgs.Count; $i++) {
-        $arg = $ExtraArgs[$i]
-
-        # Values belonging to a '--option value' pair are consumed below, so
-        # anything bare reaching here is a stray argument worth flagging.
-        if ($arg -notlike '--*') {
-            Write-Warning "Ignoring unexpected argument '$arg'. Range and ports are the only positional arguments; everything else needs a name."
-            continue
-        }
-
-        $name, $inlineValue = ($arg.Substring(2) -split '=', 2)
-        $value = if ($null -ne $inlineValue) { $inlineValue } else { $ExtraArgs[$i + 1] }
-
-        switch -Regex ($name) {
-            '^(nogui|no-gui|cli|console)$' { $NoGui = $true }
-            '^(nodns|no-dns)$'             { $NoDns = $true }
-            '^(nomac|no-mac)$'             { $NoMac = $true }
-            '^(offline|offlinevendors|offline-vendors|no-vendor-api)$' { $OfflineVendors = $true }
-            '^(help|usage)$'               { $Help = $true }
-            '^(range|subnet|target)$'      { $Range = $value;   if (-not $inlineValue) { $i++ } }
-            '^ports$'                      { $Ports = $value;   if (-not $inlineValue) { $i++ } }
-            '^(csv|exportcsv|export-csv)$' { $ExportCsv = $value; if (-not $inlineValue) { $i++ } }
-            '^timeout(ms)?$'               { $TimeoutMs = [int]$value; if (-not $inlineValue) { $i++ } }
-            '^concurrency$'                { $Concurrency = [int]$value; if (-not $inlineValue) { $i++ } }
-            default { Write-Warning "Ignoring unknown option '$arg'." }
-        }
-    }
-}
-
 if ($Help) {
-    # Written out longhand rather than via Get-Help, because the comment-based
-    # help is unreachable when the script is piped in through the one-liner.
     Write-Host @'
 
 PowerScan - PowerShell IP scanner with a WPF GUI
 
 USAGE
-  PowerScan.ps1 [[-Range] <range>] [[-Ports] <list>] [--nogui] [-TimeoutMs <n>]
+  PowerScan.ps1 [[-Range] <range>] [[-Ports] <list>] [-NoGui] [-TimeoutMs <n>]
                 [-Concurrency <n>] [-NoDns] [-NoMac] [-ExportCsv <path>]
 
   Every option is optional. With no arguments at all, PowerScan opens the
@@ -153,19 +111,18 @@ OPTIONS                                                      (all optional)
                     mix. Default: the subnet holding your default gateway.
   -Ports, -p        Positional 2. TCP ports to test on live hosts,
                     e.g. 22,80,443,3389. Default: none tested.
-  -NoGui, --nogui   Print a table to the console instead of opening the window.
+  -NoGui, -c        Print a table to the console instead of opening the window.
   -TimeoutMs        Per-host ICMP timeout. Default 400.
   -Concurrency      Hosts pinged at once. Default 64.
   -NoDns / -NoMac   Skip reverse DNS / MAC+vendor resolution.
   -OfflineVendors   Never call the vendor API; use the built-in OUI table.
-                    Also: --offline
   -ExportCsv        Also write the results to this CSV path.
 
 EXAMPLES
   PowerScan.ps1
-  PowerScan.ps1 --nogui
-  PowerScan.ps1 --nogui -Range 10.0.0.0/24 -Ports 22,80,443,3389
-  PowerScan.ps1 10.0.0.0/24 22,80,443,3389 --nogui
+  PowerScan.ps1 -NoGui
+  PowerScan.ps1 -NoGui -Range 10.0.0.0/24 -Ports 22,80,443,3389
+  PowerScan.ps1 10.0.0.0/24 22,80,443,3389 -NoGui
   PowerScan.ps1 -Range 192.168.1.1-254 -ExportCsv .\scan.csv
 
 '@
@@ -982,8 +939,6 @@ function Show-ScannerWindow {
     param([string]$InitialRange, [string]$InitialPorts)
 
     Add-Type -AssemblyName PresentationFramework, PresentationCore, WindowsBase | Out-Null
-
-    # --- Theme, following the Windows app theme like Win11Debloat does ---
     $useDark = $true
     try {
         $useDark = (Get-ItemPropertyValue 'HKCU:\SOFTWARE\Microsoft\Windows\CurrentVersion\Themes\Personalize' 'AppsUseLightTheme') -eq 0

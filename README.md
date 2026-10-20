@@ -9,7 +9,7 @@ A network scanner that runs from one line of PowerShell. No install, no modules,
 That opens a window, detects the subnet you're on, and starts scanning. For a table in the console instead:
 
 ```powershell
-& ([scriptblock]::Create((irm "https://raw.githubusercontent.com/kevinmcgillicuddy/PowerScan/main/PowerScan.ps1"))) --nogui
+& ([scriptblock]::Create((irm "https://raw.githubusercontent.com/kevinmcgillicuddy/PowerScan/main/PowerScan.ps1"))) -NoGui
 ```
 
 ## What it finds
@@ -33,31 +33,28 @@ IP Address      Hostname                  MAC                 Vendor           m
 |---|---|---|
 | `-Range`, `-r` | the subnet of whichever adapter holds your default gateway | What to scan. CIDR (`192.168.1.0/24`), a dashed range (`192.168.1.10-50`, `10.0.0.250-10.0.1.20`), a single IP, or a comma-separated mix. |
 | `-Ports`, `-p` | none tested | TCP ports to test on each live host: `22,80,443,3389`. Ranges work too: `8000-8010`. |
-| `--nogui`, `-NoGui` | off — GUI opens | Print a table to the console instead of opening the window. |
+| `-NoGui`, `-c` | off — GUI opens | Print a table to the console instead of opening the window. |
 | `-TimeoutMs` | `400` | Per-host ICMP timeout. Raise it on slow links, lower it on a fast LAN. |
 | `-Concurrency` | `64` | How many hosts are pinged at once. |
 | `-NoDns` | off | Skip reverse DNS. Noticeably faster on subnets with no local DNS server. |
 | `-NoMac` | off | Skip MAC and vendor resolution. |
-| `-OfflineVendors`, `--offline` | off | Never call the vendor API; use the built-in OUI table only. |
+| `-OfflineVendors`, `-Offline` | off | Never call the vendor API; use the built-in OUI table only. |
 | `-ExportCsv` | off | Also write the results to a CSV path. |
 | `-Help`, `-h` | — | Usage. |
 
-Two conveniences worth knowing:
-
-- **Range and ports are positional**, in that order, so `PowerScan.ps1 192.168.1.0/24 22,443` does what it looks like.
-- **Both `--nogui` and `-NoGui` work**, so muscle memory from other CLI tools doesn't bite. The same goes for `--range`, `--ports`, `--nodns`, `--nomac`, `--csv` and `--help`, including the `--range=10.0.0.0/24` form.
+**Range and ports are positional**, in that order, so `PowerScan.ps1 192.168.1.0/24 22,443` does what it looks like. Everything else is a normal PowerShell switch, with the usual short aliases (`-r`, `-p`, `-c`, `-h`) and prefix matching, so `-NoG` and `-Off` work too.
 
 ### Examples
 
 ```powershell
 # Console table for a specific subnet, checking the usual remote-access ports
-.\PowerScan.ps1 --nogui -Range 10.0.0.0/24 -Ports 22,80,443,3389
+.\PowerScan.ps1 -NoGui -Range 10.0.0.0/24 -Ports 22,80,443,3389
 
 # Same thing, positionally
-.\PowerScan.ps1 10.0.0.0/24 22,80,443,3389 --nogui
+.\PowerScan.ps1 10.0.0.0/24 22,80,443,3389 -NoGui
 
 # Fast sweep, no name resolution, straight to CSV
-.\PowerScan.ps1 --nogui -Range 192.168.1.1-254 -NoDns -ExportCsv .\site-audit.csv
+.\PowerScan.ps1 -NoGui -Range 192.168.1.1-254 -NoDns -ExportCsv .\site-audit.csv
 
 # GUI, pre-pointed at a range you don't live on
 .\PowerScan.ps1 -Range 172.16.4.0/22
@@ -66,7 +63,7 @@ Two conveniences worth knowing:
 Passing arguments through the one-liner works the same way — they bind to the downloaded script's `param()` block:
 
 ```powershell
-& ([scriptblock]::Create((irm "https://raw.githubusercontent.com/kevinmcgillicuddy/PowerScan/main/PowerScan.ps1"))) --nogui -Range 10.0.0.0/24 -Ports 445
+& ([scriptblock]::Create((irm "https://raw.githubusercontent.com/kevinmcgillicuddy/PowerScan/main/PowerScan.ps1"))) -NoGui -Range 10.0.0.0/24 -Ports 445
 ```
 
 ## The GUI
@@ -78,7 +75,7 @@ Follows your Windows light/dark setting. Columns are click-to-sort, rows are mul
 - Windows PowerShell 5.1 (ships with Windows) or PowerShell 7+
 - Nothing else — no modules, no admin rights
 
-The GUI needs WPF on an STA thread, which is the default under `powershell.exe`. If you're in PowerShell 7 and the window won't open, use `pwsh -STA` or just run with `--nogui`. On Server Core, where WPF isn't present, the script detects it and falls back to console output on its own.
+The GUI needs WPF on an STA thread, which is the default under `powershell.exe`. If you're in PowerShell 7 and the window won't open, use `pwsh -STA` or just run with `-NoGui`. On Server Core, where WPF isn't present, the script detects it and falls back to console output on its own.
 
 If `irm` fails on an older build, TLS 1.2 isn't the default there:
 
@@ -107,7 +104,7 @@ Details that matter in practice:
 - **One call per vendor, not per host.** Results are cached by OUI for the duration of a scan, so a /24 full of Dell desktops costs a single request.
 - **First failure is the last.** DNS failure, no route, a proxy block, a timeout, or a `429` trips a circuit breaker, and the rest of the scan uses the table without touching the network again. An air-gapped scan of six unique vendors costs one failed request and about 0.16s, not six timeouts.
 - **Rate limits** are 60 requests/minute and 1,000/day per IP without a key. With per-OUI caching you are very unlikely to reach either.
-- **`--offline`** skips the API entirely, for sites that would rather make no outbound calls at all.
+- **`-OfflineVendors`** skips the API entirely, for sites that would rather make no outbound calls at all.
 
 The built-in table carries ~150 common prefixes and is deliberately kept, so the tool stays useful on an isolated network. The API gives fuller names where it's reachable — `Apple, Inc.` and `Raspberry Pi Foundation` rather than the table's `Apple` and `Raspberry Pi`.
 
