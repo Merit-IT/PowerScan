@@ -27,25 +27,33 @@ IP Address      Hostname                  MAC                 Vendor           m
 
 ## Options
 
-| Option | What it does |
-|---|---|
-| `-Range`, `-r` | What to scan. CIDR (`192.168.1.0/24`), a dashed range (`192.168.1.10-50`, `10.0.0.250-10.0.1.20`), a single IP, or a comma-separated mix. Defaults to the subnet of whichever adapter holds your default gateway. |
-| `--nogui`, `-NoGui` | Print a table to the console instead of opening the window. |
-| `-Ports`, `-p` | TCP ports to test on each live host: `22,80,443,3389`. Ranges work too: `8000-8010`. |
-| `-TimeoutMs` | Per-host ICMP timeout. Default `400`. Raise it on slow links, lower it on a fast LAN. |
-| `-Concurrency` | How many hosts are pinged at once. Default `64`. |
-| `-NoDns` | Skip reverse DNS. Noticeably faster on subnets with no local DNS server. |
-| `-NoMac` | Skip MAC and vendor resolution. |
-| `-ExportCsv` | Also write the results to a CSV path. |
-| `-Help`, `-h` | Usage. |
+**Every option is optional.** Run PowerScan with no arguments at all and it opens the GUI, works out which subnet you're on, and scans it.
 
-Both `--nogui` and `-NoGui` work, so the muscle memory from other CLI tools doesn't bite.
+| Option | Default | What it does |
+|---|---|---|
+| `-Range`, `-r` | the subnet of whichever adapter holds your default gateway | What to scan. CIDR (`192.168.1.0/24`), a dashed range (`192.168.1.10-50`, `10.0.0.250-10.0.1.20`), a single IP, or a comma-separated mix. |
+| `-Ports`, `-p` | none tested | TCP ports to test on each live host: `22,80,443,3389`. Ranges work too: `8000-8010`. |
+| `--nogui`, `-NoGui` | off — GUI opens | Print a table to the console instead of opening the window. |
+| `-TimeoutMs` | `400` | Per-host ICMP timeout. Raise it on slow links, lower it on a fast LAN. |
+| `-Concurrency` | `64` | How many hosts are pinged at once. |
+| `-NoDns` | off | Skip reverse DNS. Noticeably faster on subnets with no local DNS server. |
+| `-NoMac` | off | Skip MAC and vendor resolution. |
+| `-ExportCsv` | off | Also write the results to a CSV path. |
+| `-Help`, `-h` | — | Usage. |
+
+Two conveniences worth knowing:
+
+- **Range and ports are positional**, in that order, so `PowerScan.ps1 192.168.1.0/24 22,443` does what it looks like.
+- **Both `--nogui` and `-NoGui` work**, so muscle memory from other CLI tools doesn't bite. The same goes for `--range`, `--ports`, `--nodns`, `--nomac`, `--csv` and `--help`, including the `--range=10.0.0.0/24` form.
 
 ### Examples
 
 ```powershell
 # Console table for a specific subnet, checking the usual remote-access ports
 .\PowerScan.ps1 --nogui -Range 10.0.0.0/24 -Ports 22,80,443,3389
+
+# Same thing, positionally
+.\PowerScan.ps1 10.0.0.0/24 22,80,443,3389 --nogui
 
 # Fast sweep, no name resolution, straight to CSV
 .\PowerScan.ps1 --nogui -Range 192.168.1.1-254 -NoDns -ExportCsv .\site-audit.csv

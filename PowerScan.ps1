@@ -2,11 +2,12 @@
 .SYNOPSIS
     PowerScan - a single-file PowerShell IP scanner with a WPF GUI.
 
+    No installs, no dependencies, no modules
+
 .DESCRIPTION
-    Sweeps a subnet with async ICMP pings, then enriches each live host with
-    reverse DNS, MAC address (from the ARP/neighbor table) and vendor, plus an
-    optional TCP port check. Results render in a WPF grid, or as a plain table
-    when run with -NoGui.
+    Scans a subnet with ICMP pings, then checks each live host with
+    reverse DNS, MAC address and vendor, plus an optional TCP port check. 
+    Results render in a WPF grid, or as a plain table when run with -NoGui.
 
     No modules, no installs, no dependencies beyond Windows PowerShell 5.1.
 
@@ -51,12 +52,16 @@
 #>
 [CmdletBinding()]
 param(
+    # Positions are declared rather than left implicit, so that reordering this
+    # block can never silently change what a bare argument binds to.
+    [Parameter(Position = 0)]
     [Alias('r', 'Subnet', 'Target')]
     [string]$Range,
 
     [Alias('c', 'Console', 'Cli')]
     [switch]$NoGui,
 
+    [Parameter(Position = 1)]
     [Alias('p')]
     [string]$Ports,
 
@@ -88,7 +93,13 @@ $ErrorActionPreference = 'Stop'
 if ($ExtraArgs) {
     for ($i = 0; $i -lt $ExtraArgs.Count; $i++) {
         $arg = $ExtraArgs[$i]
-        if ($arg -notlike '--*') { continue }
+
+        # Values belonging to a '--option value' pair are consumed below, so
+        # anything bare reaching here is a stray argument worth flagging.
+        if ($arg -notlike '--*') {
+            Write-Warning "Ignoring unexpected argument '$arg'. Range and ports are the only positional arguments; everything else needs a name."
+            continue
+        }
 
         $name, $inlineValue = ($arg.Substring(2) -split '=', 2)
         $value = if ($null -ne $inlineValue) { $inlineValue } else { $ExtraArgs[$i + 1] }
@@ -116,15 +127,22 @@ if ($Help) {
 PowerScan - PowerShell IP scanner with a WPF GUI
 
 USAGE
-  PowerScan.ps1 [-Range <range>] [--nogui] [-Ports <list>] [-TimeoutMs <n>]
-             [-Concurrency <n>] [-NoDns] [-NoMac] [-ExportCsv <path>]
+  PowerScan.ps1 [[-Range] <range>] [[-Ports] <list>] [--nogui] [-TimeoutMs <n>]
+                [-Concurrency <n>] [-NoDns] [-NoMac] [-ExportCsv <path>]
 
-OPTIONS
-  -Range, -r        CIDR (192.168.1.0/24), dashed range (192.168.1.10-50),
-                    a single IP, or a comma-separated mix.
-                    Default: the subnet holding your default gateway.
+  Every option is optional. With no arguments at all, PowerScan opens the
+  GUI and scans the subnet you are on.
+
+  Range and ports may also be given positionally, in that order:
+      PowerScan.ps1 192.168.1.0/24 22,443
+
+OPTIONS                                                      (all optional)
+  -Range, -r        Positional 1. CIDR (192.168.1.0/24), dashed range
+                    (192.168.1.10-50), a single IP, or a comma-separated
+                    mix. Default: the subnet holding your default gateway.
+  -Ports, -p        Positional 2. TCP ports to test on live hosts,
+                    e.g. 22,80,443,3389. Default: none tested.
   -NoGui, --nogui   Print a table to the console instead of opening the window.
-  -Ports, -p        TCP ports to test on live hosts, e.g. 22,80,443,3389
   -TimeoutMs        Per-host ICMP timeout. Default 400.
   -Concurrency      Hosts pinged at once. Default 64.
   -NoDns / -NoMac   Skip reverse DNS / MAC+vendor resolution.
@@ -134,6 +152,7 @@ EXAMPLES
   PowerScan.ps1
   PowerScan.ps1 --nogui
   PowerScan.ps1 --nogui -Range 10.0.0.0/24 -Ports 22,80,443,3389
+  PowerScan.ps1 10.0.0.0/24 22,80,443,3389 --nogui
   PowerScan.ps1 -Range 192.168.1.1-254 -ExportCsv .\scan.csv
 
 '@
