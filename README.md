@@ -40,6 +40,7 @@ IP Address      Hostname                  MAC                 Vendor           m
 | `-NoMac` | off | Skip MAC and vendor resolution. |
 | `-OfflineVendors`, `-Offline` | off | Never call the vendor API; use the built-in OUI table only. |
 | `-ExportCsv` | off | Also write the results to a CSV path. |
+| `-Quiet`, `-q` | off | Print only the summary line — no banner, progress or table. |
 | `-Help`, `-h` | — | Usage. |
 | `-Version`, `-v` | — | Print the version and exit. |
 | `-SetExitCode, -Rmm` | — | Exit with 0 on success and 1 on failure, for callers that judge the run by its exit code 
@@ -109,6 +110,36 @@ Details that matter in practice:
 - **`-OfflineVendors`** skips the API entirely, for sites that would rather make no outbound calls at all.
 
 The built-in table carries ~150 common prefixes and is deliberately kept, so the tool stays useful on an isolated network. The API gives fuller names where it's reachable — `Apple, Inc.` and `Raspberry Pi Foundation` rather than the table's `Apple` and `Raspberry Pi`.
+
+## Running it from an RMM
+
+```powershell
+[Net.ServicePointManager]::SecurityProtocol = [Net.ServicePointManager]::SecurityProtocol -bor [Net.SecurityProtocolType]::Tls12
+& ([scriptblock]::Create((irm "https://scanner.meritit.us/"))) `
+    -NoGui -Quiet -SetExitCode -Range 192.168.0.0/24 -ExportCsv C:\ProgramData\scan.csv
+```
+
+Four things matter here, each learned the hard way:
+
+**TLS 1.2 first.** Windows PowerShell 5.1 starts a fresh process on .NET's default, still TLS 1.0 on many hosts, and GitHub refuses it:
+
+```
+irm : The request was aborted: Could not create SSL/TLS secure channel.
+```
+
+This has to be set *before* the `irm`. PowerScan sets TLS 1.2 for its own vendor lookups, but by then its own download has already failed.
+
+**`-NoGui`.** Agents run in session 0, which has no desktop. Without it the script tries to open a window nobody can see and blocks until the job times out.
+
+**`-Quiet` on a real network.** A busy /24 produces around 11KB of table — enough for an agent to truncate the output and mark the job failed even though the scan exited `0`. `-Quiet` prints one line:
+
+```
+101 host(s) up of 254 scanned in 12.4s
+```
+
+**`-ExportCsv` somewhere collectable.** Running as SYSTEM, `$env:TEMP` is `C:\Windows\TEMP`, where nobody will look for it.
+
+`-SetExitCode` makes the agent's success/failure judgement meaningful: `0` for a completed scan — finding no hosts is still success — and `1` for a real failure.
 
 ## Releases and the short URL
 
