@@ -114,14 +114,13 @@ The built-in table carries ~150 common prefixes and is deliberately kept, so the
 
 The one-liner points at **`/releases/latest/download/PowerScan.ps1`**, not at `main`. That matters: with a raw-`main` link, every push lands in a technician's elevated prompt the moment it's committed. With a release, you tag deliberately, and rolling back is moving a tag.
 
-Cutting a release is pushing a tag:
+Cutting a release is bumping one line. Change `$PowerScanVersion` in `PowerScan.ps1`, open a PR, merge it — that's the whole process. No tagging by hand.
 
-```powershell
-git tag v1.0.1
-git push origin v1.0.1
-```
+[`release.yml`](.github/workflows/release.yml) runs on every merge to `main` and reads the version back out of the script. If that version already has a tag, it does nothing; if it doesn't, it checks the script parses, smoke-tests the console path, the `scriptblock` path a technician actually uses, and the `-SetExitCode` contract an RMM agent reads, then tags and publishes.
 
-[`release.yml`](.github/workflows/release.yml) then checks the script parses, checks `$PowerScanVersion` agrees with the tag, smoke-tests both the console path and the `scriptblock` path a technician actually uses, and only then publishes. A tag that disagrees with the version in the script fails the build rather than shipping a file that misreports itself.
+So the version line is the release switch. A docs-only merge ships nothing. A merge that bumps the version ships, and `/releases/latest/download/` repoints itself, so `scanner.meritit.us` starts serving the new build with no DNS change.
+
+Tagging and publishing happen in the same job on purpose: a tag pushed with `GITHUB_TOKEN` doesn't trigger other workflows, so "tag here, release on the tag event" would silently never run.
 
 To put it behind your own hostname, a 301 is all it takes — this is exactly what Win11Debloat's `debloat.raphi.re` does:
 
